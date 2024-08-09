@@ -3,3 +3,5 @@
 
 # Ignore all .log files
 *.log
+
+*.ipynb
