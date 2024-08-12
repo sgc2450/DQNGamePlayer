@@ -3,7 +3,8 @@ from gymnasium.wrappers import AtariPreprocessing, FrameStack
 import torch
 import numpy as np
 import torch.nn as nn
-from pacmanModel_mcDQN import Agent
+from pacmanModel_tdDQN import Agent
+
 
 
 def load_model(model_path, env, device):
@@ -14,7 +15,7 @@ def load_model(model_path, env, device):
 
 def main():
     env_name = "ALE/Pacman-v5"
-    model_path = 'model.pth'
+    model_path = 'td_model.pth'
     if torch.cuda.is_available():
         device = torch.device("cuda")
         print("CUDA is available. Running on GPU.")
@@ -23,7 +24,7 @@ def main():
         print("CUDA is not available. Running on CPU.")
 
     env = gym.make(env_name, render_mode='human', frameskip=1)
-    env = AtariPreprocessing(env, frame_skip=8, scale_obs=True ,screen_size=84)
+    env = AtariPreprocessing(env, frame_skip=4, scale_obs=True ,screen_size=84)
     env = FrameStack(env, num_stack=4)
 
     model = load_model(model_path, env, device)
@@ -32,7 +33,10 @@ def main():
     done = False
 
     while True:
-        action, info = model.get_action(obs, training=False)
+        
+        with torch.no_grad():
+            action, info = model.get_action(obs, training=False)
+        print(f'\rAction:{action}, {info}')
         obs, reward, done, trunc, info = env.step(action)
         env.render()
         if done or trunc:

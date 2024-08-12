@@ -39,7 +39,7 @@ def update_orientation(orientation, relative_action):
 #Adds short memory of expeirences to sample from 
 class Agent(nn.Module):
 
-    def __init__(self, env: gym.Env, device, lr: float = 0.1, eps: float = 0.8, 
+    def __init__(self, env: gym.Env, device, lr: float = 0.1, eps: float = 0.7, 
                  gamma: float = 0.905, batch_size: int = 32, optimizer = None, loss = None):
         
         super(Agent,self).__init__()
@@ -47,6 +47,8 @@ class Agent(nn.Module):
         self.device = device
         self.lr = lr   # Learning rate
         self.eps = eps # Exploration/Exploitation policy
+        self.eps_decay = 0.995
+        self.eps_min = 0.1
         self.gamma = gamma # Reward Decay
         self.n_actions = env.action_space.n
         self.batch_size = batch_size
@@ -58,12 +60,11 @@ class Agent(nn.Module):
                 nn.ReLU(),
                 nn.BatchNorm2d(32),
                 nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=1),
-                nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
                 nn.ReLU(),
                 nn.Flatten(),
-                nn.Linear(6272, 3136),
+                nn.Linear(3136, 1568),
                 nn.ReLU(),
-                nn.Linear(3136, 512),
+                nn.Linear(1568, 512),
                 nn.ReLU(),
                 nn.Linear(512, self.n_actions)
             ).to(device)
@@ -100,28 +101,24 @@ class Agent(nn.Module):
         #relative_action = None
         action = None
 
-        if training is True:
+        if training:
             if (random.random() < self.eps):
                 #relative_action = random.choice(list(RELATIVE_ACTIONS.keys()))
                 action = self.env.action_space.sample()
                 action_type = "exploration"
         if action is None:
             state = np.array(state)
-            state = torch.tensor(state, dtype=torch.float32).permute(0, 1, 2).unsqueeze(0).to(self.device) # Configure tensor dimensions
+            state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device) # Configure tensor dimensions
             q_actions = self.forward(state) 
-            #print(f'\r{q_actions}', end='', flush=True)
+            # print(f'\r{q_actions}\n', end='', flush=True)
             action = torch.argmax(q_actions).item()  
             #print(f'\n\r{action}', end='', flush=True)  
-            #relative_action_index = torch.argmax(q_actions).item()
-            #relative_action = list(RELATIVE_ACTIONS.keys())[relative_action_index % 5]
             action_type = "exploitation"
 
-        if (self.eps > .01):
-            self.eps *= 0.99995 # Decay eps upon exploration
-
-        #absolute_action = get_absolute_action(self.orientation, relative_action)
-        #self.orientation = update_orientation(self.orientation, relative_action)
-
+        if training:
+            if (self.eps > self.eps_min):
+                self.eps *= self.eps_decay # Decay eps upon exploration
+        # print(f'Action {action}, {action_type}')
         return action, action_type
     
     def update_network(self):
@@ -139,12 +136,12 @@ class Agent(nn.Module):
 
         # Normalize the rewards
         if len(returns) > 1:
-            returns = (returns - returns.mean()) / (returns.std() - 1e-5)
+            returns = (returns - returns.mean()) / (returns.std() + 1e-5)
 
         
         for state, action, G in zip(self.episode_states, self.episode_actions, returns):
             state = np.array(state)
-            state = torch.tensor(state, dtype=torch.float32).permute(0, 1, 2).unsqueeze(0).to(self.device)
+            state = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
             q_values = self.forward(state)
             state_action_value = q_values[0, action]
             loss = self.loss(state_action_value, G)
@@ -161,7 +158,7 @@ class Agent(nn.Module):
         
 def main():
     env_name = "ALE/Pacman-v5"
-    episodes = 1000
+    episodes = 10
     if torch.cuda.is_available():
         device = torch.device("cuda")
         print("CUDA is available. Training on GPU.")
@@ -184,7 +181,7 @@ def main():
         action_count = 0
         loss_tot = 0
         #model.orientation = "up"
-        lives = 3
+        lives = 4
         while not done:
             action, type = model.get_action(obs)
             if type == "exploitation":
@@ -195,10 +192,13 @@ def main():
             new_state, reward, done, trunc, info = env.step(action)
 
             if info['lives'] < lives:
-                reward = -1.0
+                reward = -0.1
                 lives = info['lives']
-            #if reward == 0:
-                #reward = -0.10
+            #print(action)
+            if action == 0:
+                reward = -0.1
+            if reward == 0:
+                reward = -0.1
             
             model.store_transition(obs, action, reward) 
             reward_tot += reward
